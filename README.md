@@ -21,6 +21,10 @@ Downloading
 Instructions for downloading hcana can be found in the
 [Hall C Wiki](https://hallcweb.jlab.org/wiki/index.php/ROOT_Analyzer/Git).
 
+```
+git clone git@github.com:Sangbaek/hcana.git --recurse-submodule
+```
+
 Compiling
 ---------
 hcana may be compiled with either make or scons.  Switching between these
@@ -33,8 +37,16 @@ depending on whether your shell is bash or csh.
 
 ### Compiling with scons
 
+First, install scons in your local env
 ```
-scons
+python3 -m pip install --user --force-reinstall scons
+```
+
+```
+module use /scigroup/cvmfs/hallb/clas12/sw/modulefiles
+setenv PYTHONPATH "`python3 -m site --user-site`:$PYTHONPATH"
+setenv PATH "$HOME/.local/bin:$PATH"
+python3 -m scons
 ```
 
 ### Additional SCons features 
