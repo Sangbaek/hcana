@@ -406,13 +406,13 @@ Int_t THcDriftChamberPlane::SubtractStartTime()
   Int_t nextHit=0; 
   if( fglHod ) StartTime = fglHod->GetStartTime();
   if (StartTime == -1000) StartTime = 0.0;
-<<<<<<< HEAD
-  for(Int_t ihit=0;ihit<GetNHits();ihit++) { 
-    THcDCHit *thishit = (THcDCHit*) fHits->At(ihit);
-=======
+//<<<<<<< HEAD
+//  for(Int_t ihit=0;ihit<GetNHits();ihit++) { 
+//    THcDCHit *thishit = (THcDCHit*) fHits->At(ihit);
+//=======
   for(Int_t ihit=0;ihit<(fFirstPassHits->GetLast()+1);ihit++) { 
     THcDCHit *thishit = (THcDCHit*) fFirstPassHits->At(ihit);
->>>>>>> 19bb26e081b60651dc9c7d92a81e84a5a2c3f54c
+//>>>>>>> 19bb26e081b60651dc9c7d92a81e84a5a2c3f54c
     Double_t temptime= thishit->GetTime()-StartTime;
     Int_t tempRawtime= thishit->GetRawTime();
     Int_t tempRawNoRefCorrtime= thishit->GetRawNoRefCorrTime();

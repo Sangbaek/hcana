@@ -74,6 +74,8 @@ protected:
   Double_t fHodoEff_CalEnergy_Cut;
   Double_t fMaxChisq;
   Double_t* fHodoSlop;
+  Double_t* fHodoStart;
+  Double_t* fHodoStop;
   Double_t fHodoEff_s1,fHodoEff_s2,fHodoEff_tof,fHodoEff_3_of_4,fHodoEff_4_of_4;
 
   // Arrays for accumulating statistics
