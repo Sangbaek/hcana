@@ -28,6 +28,7 @@ the number of parameters per plane.
 #include "TVectorD.h"
 #include "THaApparatus.h"
 #include "THcHallCSpectrometer.h"
+#include "Textvars.h"  // vsplit
 
 #include <cstring>
 #include <cstdio>
@@ -136,7 +137,7 @@ void THcDC::Setup(const char* name, const char* description)
   cout << "Plane Name List: " << planenamelist << endl;
   cout << "Drift Chambers: " <<  fNPlanes << " planes in " << fNChambers << " chambers" << endl;
 
-  vector<string> plane_names = vsplit(planenamelist);
+  vector<string> plane_names = Podd::vsplit(planenamelist);
 
   if(plane_names.size() != (UInt_t) fNPlanes) {
     cout << "ERROR: Number of planes " << fNPlanes << " doesn't agree with number of plane names " << plane_names.size() << endl;

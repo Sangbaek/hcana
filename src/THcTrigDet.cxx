@@ -106,6 +106,7 @@ Use only with THcTrigApp class.
 
 #include "THaApparatus.h"
 #include "THaEvData.h"
+#include "Textvars.h"   // for Podd::vsplit
 
 #include "THcDetectorMap.h"
 #include "THcGlobals.h"
@@ -115,10 +116,10 @@ Use only with THcTrigApp class.
 #include "THcTrigApp.h"
 #include "THcTrigRawHit.h"
 
-
+//_____________________________________________________________________________
 THcTrigDet::THcTrigDet() {}
 
-
+//_____________________________________________________________________________
 THcTrigDet::THcTrigDet(
   const char* name, const char* description, THaApparatus* app
 ) :
@@ -135,7 +136,7 @@ THcTrigDet::THcTrigDet(
   fSpectName = name[0];
 }
 
-
+//_____________________________________________________________________________
 THcTrigDet::~THcTrigDet() {
   delete [] fAdcTimeWindowMin; fAdcTimeWindowMin = NULL;
   delete [] fAdcTimeWindowMax; fAdcTimeWindowMax = NULL;
@@ -144,7 +145,7 @@ THcTrigDet::~THcTrigDet() {
 
 }
 
-
+//_____________________________________________________________________________
 THaAnalysisObject::EStatus THcTrigDet::Init(const TDatime& date) {
   // Call `Setup` before everything else.
   Setup(GetName(), GetTitle());
@@ -164,6 +165,8 @@ THaAnalysisObject::EStatus THcTrigDet::Init(const TDatime& date) {
   for (int i=0; i<fMaxTdcChannels; ++i) {
     fTdcTimeRaw[i] = 0;
     fTdcTime[i] = 0.0;
+    fVecTdcTimeRaw[i].clear();
+    fVecTdcTime[i].clear();
     fTdcMultiplicity[i] = 0;
   };
 
@@ -173,7 +176,7 @@ THaAnalysisObject::EStatus THcTrigDet::Init(const TDatime& date) {
   if (status) {
     fStatus = status;
     return fStatus;
-  
+
 }
   // Fill in detector map.
   string EngineDID = string(GetApparatus()->GetName()).substr(0, 1) + GetName();
@@ -191,7 +194,7 @@ THaAnalysisObject::EStatus THcTrigDet::Init(const TDatime& date) {
   fTDC_RefTimeCut = -1000;		// Minimum allowed reference times
   fADC_RefTimeCut = -1000;
   gHcParms->LoadParmValues((DBRequest*)&listextra,fKwPrefix.c_str());
- // Initialize hitlist part of the class.
+  // Initialize hitlist part of the class.
   // printf(" Init trig det hitlist\n");
   InitHitList(fDetMap, "THcTrigRawHit", 200,fTDC_RefTimeCut,fADC_RefTimeCut);
   CreateMissReportParms(fKwPrefix.c_str());
@@ -206,7 +209,7 @@ THaAnalysisObject::EStatus THcTrigDet::Init(const TDatime& date) {
   return fStatus;
 }
 
-
+//_____________________________________________________________________________
 void THcTrigDet::Clear(Option_t* opt) {
   THaAnalysisObject::Clear(opt);
 
@@ -222,17 +225,29 @@ void THcTrigDet::Clear(Option_t* opt) {
     fAdcPulseInt[i] = 0.0;
     fAdcPulseAmp[i] = 0.0;
     fAdcMultiplicity[i] = 0;
+    fAdcSampPedRaw[i] = 0;
+    fAdcSampPulseIntRaw[i] = 0;
+    fAdcSampPulseAmpRaw[i] = 0;
+    fAdcSampPulseTimeRaw[i] = 0;
+    fAdcSampPulseTime[i] = kBig;
+    fAdcSampPed[i] = 0.0;
+    fAdcSampPulseInt[i] = 0.0;
+    fAdcSampPulseAmp[i] = 0.0;
+    fAdcSampMultiplicity[i] = 0;
   };
   for (int i=0; i<fNumTdc; ++i) {
     fTdcTimeRaw[i] = 0;
     fTdcTime[i] = 0.0;
+    fVecTdcTimeRaw[i].clear();
+    fVecTdcTime[i].clear();
     fTdcMultiplicity[i] = 0;
   };
+       fSampWaveform.clear();
 }
 
-
+//_____________________________________________________________________________
 Int_t THcTrigDet::Decode(const THaEvData& evData) {
-    
+
   // Decode raw data for this event.
   Bool_t present = kTRUE;	// Don't suppress reference time warnings
   if(HaveIgnoreList()) {
@@ -251,7 +266,7 @@ Int_t THcTrigDet::Decode(const THaEvData& evData) {
 
     Int_t cnt = hit->fCounter-1;
     if (hit->fPlane == 1) {
-      THcRawAdcHit rawAdcHit = hit->GetRawAdcHit();
+      THcRawAdcHit& rawAdcHit = hit->GetRawAdcHit();
       fAdcMultiplicity[cnt] = rawAdcHit.GetNPulses();
       UInt_t good_hit=999;
           for (UInt_t thit=0; thit<rawAdcHit.GetNPulses(); ++thit) {
@@ -270,9 +285,52 @@ Int_t THcTrigDet::Decode(const THaEvData& evData) {
        fAdcPulseInt[cnt] = rawAdcHit.GetPulseInt(good_hit);
        fAdcPulseAmp[cnt] = rawAdcHit.GetPulseAmp(good_hit);
 	 }
+    if (rawAdcHit.GetNSamples() >0 ) {
+      rawAdcHit.SetSampThreshold(fSampThreshold);
+      if (fSampNSA == 0) fSampNSA=rawAdcHit.GetF250_NSA();
+      if (fSampNSB == 0) fSampNSB=rawAdcHit.GetF250_NSB();
+      rawAdcHit.SetF250Params(fSampNSA,fSampNSB,4); // Set NPED =4
+      if (fSampNSAT != 2) rawAdcHit.SetSampNSAT(fSampNSAT);
+       rawAdcHit.SetSampIntTimePedestalPeak();
+     if (fOutputSampWaveform==1) {
+       fSampWaveform.push_back(float(cnt));
+       fSampWaveform.push_back(float(rawAdcHit.GetNSamples()));
+       for (UInt_t thit = 0; thit < rawAdcHit.GetNSamples(); thit++) {
+	fSampWaveform.push_back(rawAdcHit.GetSample(thit)); // ped subtracted sample (mV)
+       }
+      }
+      fAdcSampMultiplicity[cnt] = rawAdcHit.GetNSampPulses();
+       UInt_t sampgood_hit=999;
+          for (UInt_t thit=0; thit<rawAdcHit.GetNSampPulses(); ++thit) {
+	    Int_t TestTime=rawAdcHit.GetSampPulseTimeRaw(thit);
+	    if (TestTime>=fAdcTimeWindowMin[cnt]&&TestTime<=fAdcTimeWindowMax[cnt]&&sampgood_hit==999) {
+	      sampgood_hit=thit;
+	    }
+	  }
+	 if (sampgood_hit<rawAdcHit.GetNSampPulses()) {
+           fAdcSampPedRaw[cnt] = rawAdcHit.GetSampPedRaw();
+           fAdcSampPulseIntRaw[cnt] = rawAdcHit.GetSampPulseIntRaw(sampgood_hit);
+           fAdcSampPulseAmpRaw[cnt] = rawAdcHit.GetSampPulseAmpRaw(sampgood_hit);
+           fAdcSampPulseTimeRaw[cnt] = rawAdcHit.GetSampPulseTimeRaw(sampgood_hit);
+           fAdcSampPulseTime[cnt] = rawAdcHit.GetSampPulseTime(sampgood_hit)+fAdcTdcOffset;
+           fAdcSampPed[cnt] = rawAdcHit.GetSampPed();
+           fAdcSampPulseInt[cnt] = rawAdcHit.GetSampPulseInt(sampgood_hit);
+           fAdcSampPulseAmp[cnt] = rawAdcHit.GetSampPulseAmp(sampgood_hit);
+           if ( rawAdcHit.GetNPulses() ==0 || fUseSampWaveform ==1 ) {
+             fAdcPedRaw[cnt] = rawAdcHit.GetSampPedRaw();
+             fAdcPulseIntRaw[cnt] = rawAdcHit.GetSampPulseIntRaw(sampgood_hit);
+             fAdcPulseAmpRaw[cnt] = rawAdcHit.GetSampPulseAmpRaw(sampgood_hit);
+             fAdcPulseTimeRaw[cnt] = rawAdcHit.GetSampPulseTimeRaw(sampgood_hit);
+             fAdcPulseTime[cnt] = rawAdcHit.GetSampPulseTime(sampgood_hit)+fAdcTdcOffset;
+             fAdcPed[cnt] = rawAdcHit.GetSampPed();
+             fAdcPulseInt[cnt] = rawAdcHit.GetSampPulseInt(sampgood_hit);
+             fAdcPulseAmp[cnt] = rawAdcHit.GetSampPulseAmp(sampgood_hit);
+	   }
+ 	 }
+    }
     }
     else if (hit->fPlane == 2) {
-      THcRawTdcHit rawTdcHit = hit->GetRawTdcHit();
+      THcRawTdcHit& rawTdcHit = hit->GetRawTdcHit();
     if (rawTdcHit.GetNHits() >0 && rawTdcHit.HasRefTime() && fTdcRefTime == kBig) fTdcRefTime=rawTdcHit.GetRefTime() ;
       UInt_t good_hit=999;
       UInt_t closest_hit=999;
@@ -283,16 +341,31 @@ Int_t THcTrigDet::Decode(const THaEvData& evData) {
 	      closest_hit=thit;
 	      TimeDiff=abs(TestTime-fTdcTimeWindowMin[cnt]);
 	    }
-	    if (TestTime>=fTdcTimeWindowMin[cnt]&&TestTime<=fTdcTimeWindowMax[cnt]&&good_hit==999) {
-	      good_hit=thit;
+	    if (TestTime>=fTdcTimeWindowMin[cnt]&&TestTime<=fTdcTimeWindowMax[cnt]) {
+	      fVecTdcTimeRaw[cnt].push_back(rawTdcHit.GetTimeRaw(thit));
+	      fVecTdcTime[cnt].push_back(rawTdcHit.GetTime(thit)*fTdcChanperNS+fTdcOffset);
+	      if (good_hit==999) {
+		good_hit=thit;
+	      }
 	    }
 	   }
-	   if (good_hit == 999 and closest_hit != 999) good_hit=closest_hit;
-	 if (good_hit<rawTdcHit.GetNHits()) {
-      fTdcTimeRaw[cnt] = rawTdcHit.GetTimeRaw(good_hit);
-      fTdcTime[cnt] = rawTdcHit.GetTime(good_hit)*fTdcChanperNS+fTdcOffset;
-	 }
-      fTdcMultiplicity[cnt] = rawTdcHit.GetNHits();
+	   if (good_hit == 999 and closest_hit != 999) {
+	     good_hit=closest_hit;
+	     fVecTdcTimeRaw[cnt].push_back(rawTdcHit.GetTimeRaw(good_hit));
+	     fVecTdcTime[cnt].push_back(rawTdcHit.GetTime(good_hit)*fTdcChanperNS+fTdcOffset);
+	   }
+	   if (good_hit<rawTdcHit.GetNHits()) {
+	     fTdcTimeRaw[cnt] = rawTdcHit.GetTimeRaw(good_hit);
+	     fTdcTime[cnt] = rawTdcHit.GetTime(good_hit)*fTdcChanperNS+fTdcOffset;
+	   }
+	   if (good_hit == 999 and closest_hit == 999) {
+	     fVecTdcTimeRaw[cnt].push_back(0);
+	     fVecTdcTime[cnt].push_back(0);
+	   }
+	   std::sort(fVecTdcTimeRaw[cnt].begin(), fVecTdcTimeRaw[cnt].end());
+	   std::sort(fVecTdcTime[cnt].begin(), fVecTdcTime[cnt].end());
+
+	   fTdcMultiplicity[cnt] = rawTdcHit.GetNHits();
     }
     else {
       throw std::out_of_range(
@@ -306,9 +379,7 @@ Int_t THcTrigDet::Decode(const THaEvData& evData) {
   return 0;
 }
 
-
-
-
+//_____________________________________________________________________________
 void THcTrigDet::Setup(const char* name, const char* description) {
   // Prefix for parameters in `param` file.
   string kwPrefix = string(GetApparatus()->GetName()) + "_" + name;
@@ -316,26 +387,35 @@ void THcTrigDet::Setup(const char* name, const char* description) {
   fKwPrefix = kwPrefix;
 }
 
-
+//_____________________________________________________________________________
 Int_t THcTrigDet::ReadDatabase(const TDatime& date) {
   std::string adcNames, tdcNames;
+
   std::string trigNames="pTRIG1_ROC1 pTRIG4_ROC1 pTRIG1_ROC2 pTRIG4_ROC2";
+
+  //C.Y. Sep 08, 2021 | changed pTRIG4 to pTRIG3 (Since in hardware, pTRIG3 -> h3/4 trigger)
+  // SJDK - 22/02/22 - Switched back, keep names here as is, can set in param files later
+  //std::string trigNames="pTRIG1_ROC1 pTRIG3_ROC1 pTRIG1_ROC2 pTRIG3_ROC2";
+
+  // SJDK 12/04/21 - Added new RF names for use in getter
+  std::string RFNames="pRF hRF";
   DBRequest list[] = {
     {"_numAdc", &fNumAdc, kInt},  // Number of ADC channels.
     {"_numTdc", &fNumTdc, kInt},  // Number of TDC channels.
     {"_adcNames", &adcNames, kString},  // Names of ADC channels.
     {"_tdcNames", &tdcNames, kString},  // Names of TDC channels.
     {"_trigNames", &trigNames, kString,0,1},  // Names of Triggers for coincidence time.
+    {"_RFNames", &RFNames, kString,0, 1}, // SJDK 12/04/21 -  Names for RF time
     {"_tdcoffset", &fTdcOffset, kDouble,0,1},  // Offset of tdc channels
     {"_adc_tdc_offset", &fAdcTdcOffset, kDouble,0,1},  // Offset of Adc Pulse time (ns)
     {"_tdcchanperns", &fTdcChanperNS, kDouble,0,1},  // Convert channesl to ns
-     {0}
+    {0}
   };
   fTdcChanperNS=0.09766;
   fTdcOffset=300.;
   fAdcTdcOffset=200.;
   gHcParms->LoadParmValues(list, fKwPrefix.c_str());
-  //
+
   fAdcTimeWindowMin = new Double_t [fNumAdc];
   fAdcTimeWindowMax = new Double_t [fNumAdc];
   fTdcTimeWindowMin = new Double_t [fNumTdc];
@@ -349,6 +429,12 @@ Int_t THcTrigDet::ReadDatabase(const TDatime& date) {
     fTdcTimeWindowMax[ip]=100000;
   }
   DBRequest list2[]={
+    {"_SampThreshold",     &fSampThreshold,       kDouble,0,1},
+    {"_SampNSA",     &fSampNSA,       kInt,0,1},
+    {"_SampNSAT",     &fSampNSAT,       kInt,0,1},
+    {"_SampNSB",     &fSampNSB,       kInt,0,1},
+    {"_OutputSampWaveform",     &fOutputSampWaveform,       kInt,0,1},
+    {"_UseSampWaveform",     &fUseSampWaveform,       kInt,0,1},
     {"_AdcTimeWindowMin", fAdcTimeWindowMin, kDouble,     (UInt_t) fNumAdc, 1},
     {"_AdcTimeWindowMax", fAdcTimeWindowMax, kDouble,     (UInt_t) fNumAdc, 1},
     {"_TdcTimeWindowMin", fTdcTimeWindowMin, kDouble,     (UInt_t) fNumTdc, 1},
@@ -356,39 +442,59 @@ Int_t THcTrigDet::ReadDatabase(const TDatime& date) {
     {0}
   };
 
+  fSampThreshold = 5.;
+  fSampNSA = 0; // use value stored in event 125 info
+  fSampNSB = 0; // use value stored in event 125 info
+  fSampNSAT = 2; // default value in THcRawHit::SetF250Params
+  fOutputSampWaveform = 0; // 0= no output , 1 = output Sample Waveform
+  fUseSampWaveform = 0; // 0= do not use , 1 = use Sample Waveform
+
   gHcParms->LoadParmValues(list2, fKwPrefix.c_str());
-  for(Int_t ip=0;ip<fNumTdc;ip++) { 
+  for(Int_t ip=0;ip<fNumTdc;ip++) {
     //    cout << ip << " " << fTdcNames.at(ip) << " " << fTdcTimeWindowMin[ip] << " " << fTdcTimeWindowMax[ip] << endl;
   }
   // Split the names to std::vector<std::string>.
-  fAdcNames = vsplit(adcNames);
-  fTdcNames = vsplit(tdcNames);
-  fTrigNames = vsplit(trigNames);
-
+  fAdcNames = Podd::vsplit(adcNames);
+  fTdcNames = Podd::vsplit(tdcNames);
+  fTrigNames = Podd::vsplit(trigNames);
+  fRFNames = Podd::vsplit(RFNames); // SJDK 12/04/21 - For RF getter
   //default index values
- 
+
   //Assign an index to coincidence trigger times strings
-     for (UInt_t j = 0; j <fTrigNames.size(); j++) {
-       fTrigId[j]=-1;
-     }
+  for (UInt_t j = 0; j <fTrigNames.size(); j++) {
+    fTrigId[j]=-1;
+  }
   for (int i = 0; i <fNumTdc; i++) {
     for (UInt_t j = 0; j <fTrigNames.size(); j++) {
-            if(fTdcNames.at(i)==fTrigNames[j]) fTrigId[j]=i;
-	  }
+      if(fTdcNames.at(i)==fTrigNames[j]) fTrigId[j]=i;
+    }
   }
- 
+
   cout << " Trig = " << fTrigNames.size() << endl;
-     for (UInt_t j = 0; j <fTrigNames.size(); j++) {
-       cout << fTrigNames[j] << " " << fTrigId[j] << endl;
-     }
-  
+  for (UInt_t j = 0; j <fTrigNames.size(); j++) {
+    cout << fTrigNames[j] << " " << fTrigId[j] << endl;
+
+  }
+
+  // SJDK - 12/04/21 - For RF getter
+  // Assign an index to RF times strings
+  for (UInt_t j = 0; j <fRFNames.size(); j++) {
+    fRFId[j]=-1;
+  }
+  for (int i = 0; i <fNumTdc; i++) {
+    for (UInt_t j = 0; j <fRFNames.size(); j++) {
+      if(fTdcNames.at(i)==fRFNames[j]) fRFId[j]=i;
+    }
+  }
+  for (UInt_t j = 0; j <fRFNames.size(); j++) {
+    cout << fRFNames[j] << " " << fRFId[j] << endl;
+  }
 
   return kOK;
 }
 
-
+//_____________________________________________________________________________
 Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
-
 
   if (mode == kDefine && fIsSetup) return kOK;
   fIsSetup = (mode == kDefine);
@@ -405,7 +511,17 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
   std::vector<TString> adcPulseIntTitle(fNumAdc), adcPulseIntVar(fNumAdc);
   std::vector<TString> adcPulseAmpTitle(fNumAdc), adcPulseAmpVar(fNumAdc);
   std::vector<TString> adcMultiplicityTitle(fNumAdc), adcMultiplicityVar(fNumAdc);
-  
+
+  std::vector<TString> adcSampPedRawTitle(fNumAdc), adcSampPedRawVar(fNumAdc);
+  std::vector<TString> adcSampPulseIntRawTitle(fNumAdc), adcSampPulseIntRawVar(fNumAdc);
+  std::vector<TString> adcSampPulseAmpRawTitle(fNumAdc), adcSampPulseAmpRawVar(fNumAdc);
+  std::vector<TString> adcSampPulseTimeRawTitle(fNumAdc), adcSampPulseTimeRawVar(fNumAdc);
+  std::vector<TString> adcSampPulseTimeTitle(fNumAdc), adcSampPulseTimeVar(fNumAdc);
+  std::vector<TString> adcSampPedTitle(fNumAdc), adcSampPedVar(fNumAdc);
+  std::vector<TString> adcSampPulseIntTitle(fNumAdc), adcSampPulseIntVar(fNumAdc);
+  std::vector<TString> adcSampPulseAmpTitle(fNumAdc), adcSampPulseAmpVar(fNumAdc);
+  std::vector<TString> adcSampMultiplicityTitle(fNumAdc), adcSampMultiplicityVar(fNumAdc);
+
   TString RefTimeTitle= "TdcRefTime";
    TString RefTimeVar= "fTdcRefTime";
    RVarDef entryRefTime {
@@ -414,7 +530,7 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       RefTimeVar.Data()
     };
      vars.push_back(entryRefTime);
- 
+
   for (int i=0; i<fNumAdc; ++i) {
     adcPedRawTitle.at(i) = fAdcNames.at(i) + "_adcPedRaw";
     adcPedRawVar.at(i) = TString::Format("fAdcPedRaw[%d]", i);
@@ -425,6 +541,15 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
     };
     vars.push_back(entry1);
 
+    adcSampPedRawTitle.at(i) = fAdcNames.at(i) + "_adcSampPedRaw";
+    adcSampPedRawVar.at(i) = TString::Format("fAdcSampPedRaw[%d]", i);
+    RVarDef entry11 {
+      adcSampPedRawTitle.at(i).Data(),
+      adcSampPedRawTitle.at(i).Data(),
+      adcSampPedRawVar.at(i).Data()
+    };
+    vars.push_back(entry11);
+
     adcPulseIntRawTitle.at(i) = fAdcNames.at(i) + "_adcPulseIntRaw";
     adcPulseIntRawVar.at(i) = TString::Format("fAdcPulseIntRaw[%d]", i);
     RVarDef entry2 {
@@ -433,6 +558,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       adcPulseIntRawVar.at(i).Data()
     };
     vars.push_back(entry2);
+
+
+    adcSampPulseIntRawTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseIntRaw";
+    adcSampPulseIntRawVar.at(i) = TString::Format("fAdcSampPulseIntRaw[%d]", i);
+    RVarDef entry22 {
+      adcSampPulseIntRawTitle.at(i).Data(),
+      adcSampPulseIntRawTitle.at(i).Data(),
+      adcSampPulseIntRawVar.at(i).Data()
+    };
+    vars.push_back(entry22);
 
     adcPulseAmpRawTitle.at(i) = fAdcNames.at(i) + "_adcPulseAmpRaw";
     adcPulseAmpRawVar.at(i) = TString::Format("fAdcPulseAmpRaw[%d]", i);
@@ -443,6 +578,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
     };
     vars.push_back(entry3);
 
+
+    adcSampPulseAmpRawTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseAmpRaw";
+    adcSampPulseAmpRawVar.at(i) = TString::Format("fAdcSampPulseAmpRaw[%d]", i);
+    RVarDef entry33 {
+      adcSampPulseAmpRawTitle.at(i).Data(),
+      adcSampPulseAmpRawTitle.at(i).Data(),
+      adcSampPulseAmpRawVar.at(i).Data()
+    };
+    vars.push_back(entry33);
+
     adcPulseTimeRawTitle.at(i) = fAdcNames.at(i) + "_adcPulseTimeRaw";
     adcPulseTimeRawVar.at(i) = TString::Format("fAdcPulseTimeRaw[%d]", i);
     RVarDef entry4 {
@@ -451,6 +596,15 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       adcPulseTimeRawVar.at(i).Data()
     };
     vars.push_back(entry4);
+
+    adcSampPulseTimeRawTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseTimeRaw";
+    adcSampPulseTimeRawVar.at(i) = TString::Format("fAdcSampPulseTimeRaw[%d]", i);
+    RVarDef entry44 {
+      adcSampPulseTimeRawTitle.at(i).Data(),
+      adcSampPulseTimeRawTitle.at(i).Data(),
+      adcSampPulseTimeRawVar.at(i).Data()
+    };
+    vars.push_back(entry44);
 
     adcPedTitle.at(i) = fAdcNames.at(i) + "_adcPed";
     adcPedVar.at(i) = TString::Format("fAdcPed[%d]", i);
@@ -461,6 +615,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
     };
     vars.push_back(entry5);
 
+
+    adcSampPedTitle.at(i) = fAdcNames.at(i) + "_adcSampPed";
+    adcSampPedVar.at(i) = TString::Format("fAdcSampPed[%d]", i);
+    RVarDef entry55 {
+      adcSampPedTitle.at(i).Data(),
+      adcSampPedTitle.at(i).Data(),
+      adcSampPedVar.at(i).Data()
+    };
+    vars.push_back(entry55);
+
     adcPulseIntTitle.at(i) = fAdcNames.at(i) + "_adcPulseInt";
     adcPulseIntVar.at(i) = TString::Format("fAdcPulseInt[%d]", i);
     RVarDef entry6 {
@@ -469,6 +633,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       adcPulseIntVar.at(i).Data()
     };
     vars.push_back(entry6);
+
+
+    adcSampPulseIntTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseInt";
+    adcSampPulseIntVar.at(i) = TString::Format("fAdcSampPulseInt[%d]", i);
+    RVarDef entry66 {
+      adcSampPulseIntTitle.at(i).Data(),
+      adcSampPulseIntTitle.at(i).Data(),
+      adcSampPulseIntVar.at(i).Data()
+    };
+    vars.push_back(entry66);
 
     adcPulseAmpTitle.at(i) = fAdcNames.at(i) + "_adcPulseAmp";
     adcPulseAmpVar.at(i) = TString::Format("fAdcPulseAmp[%d]", i);
@@ -479,6 +653,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
     };
     vars.push_back(entry7);
 
+
+    adcSampPulseAmpTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseAmp";
+    adcSampPulseAmpVar.at(i) = TString::Format("fAdcSampPulseAmp[%d]", i);
+    RVarDef entry77 {
+      adcSampPulseAmpTitle.at(i).Data(),
+      adcSampPulseAmpTitle.at(i).Data(),
+      adcSampPulseAmpVar.at(i).Data()
+    };
+    vars.push_back(entry77);
+
     adcMultiplicityTitle.at(i) = fAdcNames.at(i) + "_adcMultiplicity";
     adcMultiplicityVar.at(i) = TString::Format("fAdcMultiplicity[%d]", i);
     RVarDef entry8 {
@@ -487,8 +671,16 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       adcMultiplicityVar.at(i).Data()
     };
     vars.push_back(entry8);
-  
- 
+
+
+    adcSampMultiplicityTitle.at(i) = fAdcNames.at(i) + "_adcSampMultiplicity";
+    adcSampMultiplicityVar.at(i) = TString::Format("fAdcSampMultiplicity[%d]", i);
+    RVarDef entry88 {
+      adcSampMultiplicityTitle.at(i).Data(),
+      adcSampMultiplicityTitle.at(i).Data(),
+      adcSampMultiplicityVar.at(i).Data()
+    };
+    vars.push_back(entry88);
 
     adcPulseTimeTitle.at(i) = fAdcNames.at(i) + "_adcPulseTime";
     adcPulseTimeVar.at(i) = TString::Format("fAdcPulseTime[%d]", i);
@@ -498,17 +690,29 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
       adcPulseTimeVar.at(i).Data()
     };
     vars.push_back(entry9);
-  } // loop over fNumAdc 
+
+    adcSampPulseTimeTitle.at(i) = fAdcNames.at(i) + "_adcSampPulseTime";
+    adcSampPulseTimeVar.at(i) = TString::Format("fAdcSampPulseTime[%d]", i);
+    RVarDef entry99 {
+      adcSampPulseTimeTitle.at(i).Data(),
+      adcSampPulseTimeTitle.at(i).Data(),
+      adcSampPulseTimeVar.at(i).Data()
+    };
+    vars.push_back(entry99);
+
+  } // loop over fNumAdc
   // Push the variable names for TDC channels.
   std::vector<TString> tdcTimeRawTitle(fNumTdc), tdcTimeRawVar(fNumTdc);
   std::vector<TString> tdcTimeTitle(fNumTdc), tdcTimeVar(fNumTdc);
+  std::vector<TString> vecTdcTimeRawTitle(fNumTdc), vecTdcTimeRawVar(fNumTdc);
+  std::vector<TString> vecTdcTimeTitle(fNumTdc), vecTdcTimeVar(fNumTdc);
   std::vector<TString> tdcMultiplicityTitle(fNumTdc), tdcMultiplicityVar(fNumTdc);
 
   for (int i=0; i<fNumTdc; ++i) {
     tdcTimeRawTitle.at(i) = fTdcNames.at(i) + "_tdcTimeRaw";
     tdcTimeRawVar.at(i) = TString::Format("fTdcTimeRaw[%d]", i);
-    
-
+    vecTdcTimeRawTitle.at(i) = fTdcNames.at(i) + "_vecTdcTimeRaw";
+    vecTdcTimeRawVar.at(i) = TString::Format("fVecTdcTimeRaw[%d]", i);
     RVarDef entry1 {
       tdcTimeRawTitle.at(i).Data(),
       tdcTimeRawTitle.at(i).Data(),
@@ -516,14 +720,31 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
     };
     vars.push_back(entry1);
 
+    RVarDef entry1vec {
+      vecTdcTimeRawTitle.at(i).Data(),
+      vecTdcTimeRawTitle.at(i).Data(),
+      vecTdcTimeRawVar.at(i).Data()
+    };
+    vars.push_back(entry1vec);
+
     tdcTimeTitle.at(i) = fTdcNames.at(i) + "_tdcTime";
     tdcTimeVar.at(i) = TString::Format("fTdcTime[%d]", i);
+    vecTdcTimeTitle.at(i) = fTdcNames.at(i) + "_vecTdcTime";
+    vecTdcTimeVar.at(i) = TString::Format("fVecTdcTime[%d]", i);
+
     RVarDef entry2 {
       tdcTimeTitle.at(i).Data(),
       tdcTimeTitle.at(i).Data(),
       tdcTimeVar.at(i).Data()
     };
     vars.push_back(entry2);
+
+    RVarDef entry2vec {
+      vecTdcTimeTitle.at(i).Data(),
+      vecTdcTimeTitle.at(i).Data(),
+      vecTdcTimeVar.at(i).Data()
+    };
+    vars.push_back(entry2vec);
 
     tdcMultiplicityTitle.at(i) = fTdcNames.at(i) + "_tdcMultiplicity";
     tdcMultiplicityVar.at(i) = TString::Format("fTdcMultiplicity[%d]", i);
@@ -538,6 +759,14 @@ Int_t THcTrigDet::DefineVariables(THaAnalysisObject::EMode mode) {
   RVarDef end {0};
   vars.push_back(end);
 
+  if (fOutputSampWaveform==1) {
+  RVarDef vars2[] = {
+    {"adcSampWaveform",          "FADC Sample Waveform",           "fSampWaveform"},
+      { 0 }
+    };
+    DefineVarsFromList( vars2, mode);
+  }
+
   return DefineVarsFromList(vars.data(), mode);
 }
 void THcTrigDet::SetSpectName( const char* name)
@@ -548,24 +777,27 @@ void THcTrigDet::SetSpectName( const char* name)
 void THcTrigDet::AddEvtType(int evtype) {
   eventtypes.push_back(evtype);
 }
-  
+
 void THcTrigDet::SetEvtType(int evtype) {
   eventtypes.clear();
   AddEvtType(evtype);
 }
 
+//_____________________________________________________________________________
 Bool_t THcTrigDet::IsIgnoreType(Int_t evtype) const
 {
   for (UInt_t i=0; i < eventtypes.size(); i++) {
     if (evtype == eventtypes[i]) return kTRUE;
   }
-  return kFALSE; 
+  return kFALSE;
 }
 
+//_____________________________________________________________________________
 Bool_t THcTrigDet::HaveIgnoreList() const
 {
   return( (eventtypes.size()>0) ? kTRUE : kFALSE);
 }
+
 //_____________________________________________________________________________
 Int_t THcTrigDet::End(THaRunBase* run)
 {

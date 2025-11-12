@@ -16,7 +16,7 @@ This class is built on THaVarList, adding a method to load the list of
 parameters from Hall C ENGINE style CTP parameter files and a method
 to retrieve a set of parameters from the list.
 
-An instance of THaTextvars is created to hold the string parameters.
+An instance of Podd::Textvars is created to hold the string parameters.
 
 \fn THcParmList::Load( const char* fname, Int_t RunNumber )
 \brief Load the parameter cache by reading a CTP style parameter file.
@@ -72,7 +72,7 @@ ClassImp(THcParmList)
 /// Create empty numerical and string parameter lists
 THcParmList::THcParmList() : THaVarList()
 {
-  TextList = new THaTextvars;
+  TextList = new Podd::Textvars;
 }
 
 inline static bool IsComment( const string& s, string::size_type pos )
@@ -154,7 +154,7 @@ The ENGINE CTP support parameter "blocks" which were marked with
   }
 
   while(nfiles) {
-    string current_comment("");
+    string current_comment;
     // EJB_Note:  existing_comment is never used.
     // string existing_comment("");
     string::size_type start, pos = 0;
@@ -306,7 +306,7 @@ The ENGINE CTP support parameter "blocks" which were marked with
     // Interpret left of = as var name
     Int_t valuestartpos=0;  // Stays zero if no = found
     Int_t ttype = 0;     // Are any of the values floating point?
-    if((pos=line.find_first_of("="))!=string::npos) {
+    if((pos=line.find_first_of('='))!=string::npos) {
       strcpy(varname, (line.substr(0,pos)).c_str());
       valuestartpos = pos+1;
       currentindex = 0;
@@ -341,8 +341,8 @@ The ENGINE CTP support parameter "blocks" which were marked with
     TObjArray *vararr = values.Tokenize(",");
     Int_t nvals = vararr->GetLast()+1;
 
-    Int_t* ip=0;
-    Double_t* fp=0;
+    Int_t* ip=nullptr;
+    Double_t* fp=nullptr;
     // or expressions
     for(Int_t i=0;(ttype==0&&i<nvals);i++) {
       TString valstr = ((TObjString *)vararr->At(i))->GetString();
@@ -427,7 +427,7 @@ The ENGINE CTP support parameter "blocks" which were marked with
 	      fp[currentindex+i] = valstr.Atof();
 	    } else {
 	      THaFormula* formula = new THaFormula
-		("temp",valstr.Data(), (Bool_t) 0, this, 0);
+		("temp",valstr.Data(), false, this, nullptr);
 	      fp[currentindex+i] = formula->Eval();
 	      delete formula;
 	    }
@@ -441,8 +441,9 @@ The ENGINE CTP support parameter "blocks" which were marked with
 	  delete [] (Int_t*) existingvar->GetValuePointer();
 	}
 	RemoveName(varname);
-	char *arrayname=new char [strlen(varname)+20];
-	sprintf(arrayname,"%s[%d]",varname,newlength);
+  size_t buflen = strlen(varname) + 20;
+	char *arrayname=new char [buflen];
+	snprintf(arrayname,buflen,"%s[%d]",varname,newlength);
 	if(newtype == kInt) {
 	  Define(arrayname, current_comment.c_str(), *ip);
 	} else {
@@ -465,7 +466,7 @@ The ENGINE CTP support parameter "blocks" which were marked with
 	      existingp[currentindex+i] = valstr.Atof();
 	    } else {
 	      THaFormula* formula = new THaFormula
-		("temp",valstr.Data(), (Bool_t) 0, this, 0);
+		("temp",valstr.Data(), false, this, nullptr);
 	      existingp[currentindex+i] = formula->Eval();
 	      delete formula;
 	    }
@@ -491,7 +492,7 @@ The ENGINE CTP support parameter "blocks" which were marked with
 	    fp[i] = valstr.Atof();
 	  } else {
 	    THaFormula* formula = new THaFormula
-	      ("temp",valstr.Data(), (Bool_t) 0, this, 0);
+	      ("temp",valstr.Data(), false, this, nullptr);
 	    fp[i] = formula->Eval();
 	    delete formula;
 	  }
@@ -499,8 +500,9 @@ The ENGINE CTP support parameter "blocks" which were marked with
       }
       currentindex = nvals;
 
-      char *arrayname=new char [strlen(varname)+20];
-      sprintf(arrayname,"%s[%d]",varname,nvals);
+      size_t buflen = strlen(varname)+20;
+      char *arrayname=new char [buflen];
+      snprintf(arrayname,buflen,"%s[%d]",varname,nvals);
       if(ttype==0) {
 	Define(arrayname, current_comment.c_str(), *ip);
       } else {
@@ -514,10 +516,8 @@ The ENGINE CTP support parameter "blocks" which were marked with
     //    cout << line << endl;
 
   }
-
-  return;
-
 }
+
 //_____________________________________________________________________________
 Int_t THcParmList::LoadParmValues(const DBRequest* list, const char* prefix)
 {
@@ -660,6 +660,8 @@ Int_t THcParmList::ReadArray(const char* attrC, T* array, Int_t size)
   if(size > sz) {
     cout << "*** ERROR: requested " << size << " elements of " << attrC <<
       " which has only " << sz << " elements" << endl;
+    cout << "Cannot continue. Must fix database. Terminating program." << endl;
+    //FIXME: probably should make this an exception to be caught in LoadParmValues
     exit(EXIT_FAILURE);
   } else if(size < sz) {
     cout << "*** WARNING: requested " << size << " elements of " << attrC <<

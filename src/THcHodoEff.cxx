@@ -42,8 +42,6 @@ THcHodoEff::~THcHodoEff()
   delete [] fCenterFirst; fCenterFirst = 0;
   delete [] fNCounters; fNCounters = 0;
   delete [] fHodoSlop; fHodoSlop = 0;
-  delete [] fHodoStart; fHodoStart = 0;
-  delete [] fHodoStop; fHodoStop = 0;
   delete [] fStatTrkSum; fStatTrkSum = 0;
   delete [] fStatAndSum; fStatAndSum = 0;
   delete [] fStatAndEff; fStatAndEff = 0;
@@ -104,7 +102,7 @@ Int_t THcHodoEff::End( THaRunBase* )
   // End of analysis
   for(Int_t ip=0;ip<fNPlanes;ip++) {
     fStatAndEff[ip]=0;
-    for(Int_t ic=fHodoStart[ip]-1;ic<fHodoStop[ip]-1;ic++) {
+    for(Int_t ic=0;ic<fNCounters[ip];ic++) {
       fStatTrkSum[ip]+=fStatTrk[fHod->GetScinIndex(ip,ic)];
       fStatAndSum[ip]+=fHodoAndEffi[fHod->GetScinIndex(ip,ic)];
     }
@@ -169,8 +167,6 @@ Int_t THcHodoEff::ReadDatabase( const TDatime& date )
   fCenterFirst = new Double_t[fNPlanes];
   fNCounters = new Int_t[fNPlanes];
   fHodoSlop = new Double_t[fNPlanes];
-  fHodoStart = new Double_t[fNPlanes];
-  fHodoStop = new Double_t[fNPlanes];
   fStatTrkSum = new Int_t[fNPlanes];
   fStatAndSum = new Int_t[fNPlanes];
   fStatAndEff = new Double_t[fNPlanes];
@@ -199,13 +195,11 @@ Int_t THcHodoEff::ReadDatabase( const TDatime& date )
   prefix[1] = '\0';
 
   DBRequest list[]={
-	{"stat_slop", &fStatSlop, kDouble},
-	{"stat_maxchisq",&fMaxChisq, kDouble},
-	{"HodoEff_CalEnergy_Cut",&fHodoEff_CalEnergy_Cut, kDouble,0,1},
-	{"hodo_slop", fHodoSlop, kDouble, (UInt_t)fNPlanes},
-	{"hodo_start", fHodoStart, kDouble, (UInt_t)fNPlanes},
-	{"hodo_stop", fHodoStop, kDouble, (UInt_t)fNPlanes},
-	{0}
+    {"stat_slop", &fStatSlop, kDouble},
+    {"stat_maxchisq",&fMaxChisq, kDouble},
+    {"HodoEff_CalEnergy_Cut",&fHodoEff_CalEnergy_Cut, kDouble,0,1},
+    {"hodo_slop", fHodoSlop, kDouble, (UInt_t)fNPlanes},
+    {0}
   };
   fHodoEff_CalEnergy_Cut=0.050; // set default value
   gHcParms->LoadParmValues((DBRequest*)&list,prefix);
