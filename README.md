@@ -44,9 +44,10 @@ python3 -m pip install --user --force-reinstall scons
 
 ```
 module use /scigroup/cvmfs/hallb/clas12/sw/modulefiles
+module load clas12
 setenv PYTHONPATH "`python3 -m site --user-site`:$PYTHONPATH"
 setenv PATH "$HOME/.local/bin:$PATH"
-python3 -m scons
+scons
 ```
 
 ### Additional SCons features 
